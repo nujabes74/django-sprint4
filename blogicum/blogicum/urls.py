@@ -36,6 +36,6 @@ urlpatterns = [
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 
-handler403 = 'blog.views.csrf_failure'
-handler404 = 'blog.views.page_not_found'
-handler500 = 'blog.views.error_500'
+handler403 = 'pages.views.csrf_failure'
+handler404 = 'pages.views.page_not_found'
+handler500 = 'pages.views.error_500'
