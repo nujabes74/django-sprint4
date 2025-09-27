@@ -125,6 +125,6 @@ class Comment(models.Model):
 
     def __str__(self):
         return (
-            self.text[:COMMENT_PREVIEW_LENGTH] + '…' +
-            '…' if len(self.text) > COMMENT_PREVIEW_LENGTH else self.text
+            self.text[:COMMENT_PREVIEW_LENGTH] + '…'
+            if len(self.text) > COMMENT_PREVIEW_LENGTH else self.text
         )
