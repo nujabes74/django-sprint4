@@ -11,7 +11,7 @@ from .models import Category, Comment, Post
 
 
 def get_posts(
-    posts=Post.objects.all() or None,
+    posts=Post.objects.all(),
     do_filter=True,
     do_select_related=True,
     do_annotate=True
@@ -27,9 +27,11 @@ def get_posts(
         posts = posts.select_related('location', 'category', 'author')
 
     if do_annotate:
-        posts = posts.annotate(comment_count=Count(
-            'comments')).order_by(*Post._meta.ordering)
-
+        posts = posts.annotate(
+            comment_count=Count('comments')
+        ).order_by(
+            *Post._meta.ordering
+        )
     return posts
 
 
@@ -47,11 +49,9 @@ def index(request):
 
 def post_detail(request, post_id):
     post = get_object_or_404(Post, id=post_id)
-
     if post.author != request.user:
         post = get_object_or_404(
             get_posts(do_select_related=False, do_annotate=False), id=post_id)
-
     return render(request, 'blog/detail.html', {
         'post': post,
         'form': CommentForm(),
@@ -63,7 +63,6 @@ def category_posts(request, category_slug):
     category = get_object_or_404(
         Category, slug=category_slug, is_published=True
     )
-
     return render(
         request,
         'blog/category.html',
@@ -82,11 +81,8 @@ def profile_view(request, username):
     posts = get_posts(
         posts=author.posts.all(),
         do_filter=(author != request.user),
-        do_select_related=True,
-        do_annotate=True
     )
     page_obj = paginate(posts, request, POSTS_QUANTITY)
-
     return render(request, 'blog/profile.html', {
         'profile': author,
         'page_obj': page_obj,
@@ -129,7 +125,7 @@ def edit_post(request, post_id):
 def delete_post(request, post_id):
     post = get_object_or_404(Post, id=post_id)
     if post.author != request.user:
-        return redirect('blog:post_detail', post_id=post.id)
+        return redirect('blog:post_detail', post.id)
     if request.method == "POST":
         post.delete()
         return redirect('blog:index')
@@ -138,23 +134,13 @@ def delete_post(request, post_id):
 
 @login_required
 def add_comment(request, post_id):
-    post = get_object_or_404(Post, id=post_id)
     form = CommentForm(request.POST or None)
-    if not form.is_valid():
-        return render(
-            request,
-            'blog/comment.html',
-            {
-                'form': form,
-                'post': post,
-                'comments': post.comments.all(),
-            }
-        )
+    post = get_object_or_404(Post, id=post_id)
     comment = form.save(commit=False)
     comment.post = post
     comment.author = request.user
     comment.save()
-    return redirect('blog:post_detail', post_id=post.id)
+    return redirect('blog:post_detail', post.id)
 
 
 @login_required
@@ -182,7 +168,7 @@ def delete_comment(request, post_id, comment_id):
         return redirect('blog:post_detail', post.pk)
     if request.method == "POST":
         comment.delete()
-        return redirect("blog:post_detail", post_id=post.pk)
+        return redirect("blog:post_detail", post.pk)
     return render(request, "blog/comment.html", {
         "comment": comment,
         "post": post
