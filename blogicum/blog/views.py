@@ -11,14 +11,11 @@ from .models import Category, Comment, Post
 
 
 def get_posts(
-    posts=None,
+    posts=Post.objects.all() or None,
     do_filter=True,
     do_select_related=True,
     do_annotate=True
 ):
-    if posts is None:
-        posts = Post.objects.all()
-
     if do_filter:
         posts = posts.filter(
             is_published=True,
@@ -30,41 +27,30 @@ def get_posts(
         posts = posts.select_related('location', 'category', 'author')
 
     if do_annotate:
-        posts = posts.annotate(comment_count=Count('comments'))
-
-    ordering = getattr(Post._meta, 'ordering', [])
-    if ordering:
-        posts = posts.order_by(*ordering)
+        posts = posts.annotate(comment_count=Count('comments')).order_by(
+            *getattr(Post._meta, 'ordering', []))
 
     return posts
 
 
-def paginate(posts, request, per_page=int):
+def paginate(posts, request, per_page=POSTS_QUANTITY):
     return Paginator(
         posts, per_page
     ).get_page(request.GET.get('page'))
 
 
 def index(request):
-    return render(
-        request,
-        'blog/index.html',
-        {
-            'page_obj': paginate(
-                get_posts(),
-                request,
-                POSTS_QUANTITY
-            )
-        }
-    )
+    return render(request, 'blog/index.html', {
+        'page_obj': paginate(get_posts(), request),
+    })
 
 
 def post_detail(request, post_id):
     post = get_object_or_404(Post, id=post_id)
 
     if post.author != request.user:
-        posts = get_posts(do_filter=True)
-        post = get_object_or_404(posts, id=post_id)
+        post = get_object_or_404(
+            get_posts(do_select_related=False, do_annotate=False), id=post_id)
 
     return render(request, 'blog/detail.html', {
         'post': post,
@@ -86,7 +72,6 @@ def category_posts(request, category_slug):
             'page_obj': paginate(
                 get_posts(posts=category.posts.all()),
                 request,
-                POSTS_QUANTITY
             ),
         }
     )
@@ -94,6 +79,13 @@ def category_posts(request, category_slug):
 
 def profile_view(request, username):
     author = get_object_or_404(User, username=username)
+    if author == request.user:
+        posts = get_posts(
+            posts=author.posts.all(),
+            do_filter=False,
+            do_select_related=True,
+            do_annotate=True
+        )
     posts = get_posts(
         posts=author.posts.all(),
         do_filter=False,
@@ -155,7 +147,7 @@ def delete_post(request, post_id):
 def add_comment(request, post_id):
     form = CommentForm(request.POST or None)
     if not form.is_valid():
-        return render(
+        return redirect(
             request,
             'blog/comment.html',
             {
@@ -173,29 +165,31 @@ def add_comment(request, post_id):
 
 @login_required
 def edit_comment(request, post_id, comment_id):
-    comment = get_object_or_404(Comment, pk=comment_id, post_id=post_id)
+    post = get_object_or_404(Post, pk=post_id)
+    comment = get_object_or_404(Comment, pk=comment_id)
     if comment.author != request.user:
-        return redirect('blog:post_detail', post_id=post_id)
+        return redirect('blog:post_detail', post.pk)
     form = CommentForm(request.POST or None, instance=comment)
     if request.method == "POST" and form.is_valid():
         form.save()
-        return redirect('blog:post_detail', post_id=post_id)
+        return redirect('blog:post_detail', post.pk)
     return render(request, "blog/comment.html", {
         "form": form,
         "comment": comment,
-        "post": post_id
+        "post": post
     })
 
 
 @login_required
 def delete_comment(request, post_id, comment_id):
-    comment = get_object_or_404(Comment, pk=comment_id, post_id=post_id)
+    post = get_object_or_404(Post, pk=post_id)
+    comment = get_object_or_404(Comment, pk=comment_id)
     if comment.author != request.user:
-        return redirect('blog:post_detail', post_id=post_id)
+        return redirect('blog:post_detail', post.pk)
     if request.method == "POST":
         comment.delete()
-        return redirect("blog:post_detail", post_id=post_id)
+        return redirect("blog:post_detail", post_id=post.pk)
     return render(request, "blog/comment.html", {
         "comment": comment,
-        "post": post_id
+        "post": post
     })

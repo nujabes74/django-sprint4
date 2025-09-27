@@ -124,10 +124,8 @@ class Comment(models.Model):
         ordering = ('created_at',)
 
     def __str__(self):
-        preview = self.text
-        if len(preview) > COMMENT_PREVIEW_LENGTH:
-            preview = preview[:COMMENT_PREVIEW_LENGTH] + '…'
         return (
-            f'Комментарий от {self.author.username} '
-            f'к публикации "{self.post.title}": {preview}'
+            self.text[:COMMENT_PREVIEW_LENGTH] + '…'
+            if len(self.text) > COMMENT_PREVIEW_LENGTH
+            else self.text
         )
