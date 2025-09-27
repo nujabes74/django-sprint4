@@ -27,8 +27,8 @@ def get_posts(
         posts = posts.select_related('location', 'category', 'author')
 
     if do_annotate:
-        posts = posts.annotate(comment_count=Count('comments')).order_by(
-            *getattr(Post._meta, 'ordering', []))
+        posts = posts.annotate(comment_count=Count(
+            'comments')).order_by(*Post._meta.ordering)
 
     return posts
 
@@ -79,16 +79,9 @@ def category_posts(request, category_slug):
 
 def profile_view(request, username):
     author = get_object_or_404(User, username=username)
-    if author == request.user:
-        posts = get_posts(
-            posts=author.posts.all(),
-            do_filter=False,
-            do_select_related=True,
-            do_annotate=True
-        )
     posts = get_posts(
         posts=author.posts.all(),
-        do_filter=False,
+        do_filter=(author != request.user),
         do_select_related=True,
         do_annotate=True
     )
@@ -145,28 +138,29 @@ def delete_post(request, post_id):
 
 @login_required
 def add_comment(request, post_id):
+    post = get_object_or_404(Post, id=post_id)
     form = CommentForm(request.POST or None)
     if not form.is_valid():
-        return redirect(
+        return render(
             request,
             'blog/comment.html',
             {
                 'form': form,
-                'post': get_object_or_404(Post, id=post_id),
-                'comments': get_object_or_404(Post, id=post_id).comments.all(),
+                'post': post,
+                'comments': post.comments.all(),
             }
         )
     comment = form.save(commit=False)
-    comment.post = get_object_or_404(Post, id=post_id)
+    comment.post = post
     comment.author = request.user
     comment.save()
-    return redirect('blog:post_detail', post_id=comment.post.id)
+    return redirect('blog:post_detail', post_id=post.id)
 
 
 @login_required
 def edit_comment(request, post_id, comment_id):
-    post = get_object_or_404(Post, pk=post_id)
     comment = get_object_or_404(Comment, pk=comment_id)
+    post = comment.post
     if comment.author != request.user:
         return redirect('blog:post_detail', post.pk)
     form = CommentForm(request.POST or None, instance=comment)
@@ -182,8 +176,8 @@ def edit_comment(request, post_id, comment_id):
 
 @login_required
 def delete_comment(request, post_id, comment_id):
-    post = get_object_or_404(Post, pk=post_id)
     comment = get_object_or_404(Comment, pk=comment_id)
+    post = comment.post
     if comment.author != request.user:
         return redirect('blog:post_detail', post.pk)
     if request.method == "POST":
