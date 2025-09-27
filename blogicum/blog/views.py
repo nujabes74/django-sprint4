@@ -5,49 +5,66 @@ from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .constants import INDEX_POSTS_QUANTITY
+from .constants import POSTS_QUANTITY
 from .forms import CommentForm, PostForm, ProfileEditForm
 from .models import Category, Comment, Post
 
 
-def select_related_func(queryset=None):
-    if queryset is None:
-        queryset = Post.objects.all()
+def get_posts(
+    posts=None,
+    do_filter=True,
+    do_select_related=True,
+    do_annotate=True
+):
+    if posts is None:
+        posts = Post.objects.all()
 
-    queryset = queryset.filter(
-        is_published=True,
-        pub_date__lte=timezone.now(),
-        category__is_published=True
-    ).select_related(
-        'location',
-        'category',
-        'author'
-    ).annotate(
-        comment_count=Count('comments')
-    ).order_by('-pub_date')
+    if do_filter:
+        posts = posts.filter(
+            is_published=True,
+            pub_date__lte=timezone.now(),
+            category__is_published=True
+        )
 
-    return queryset
+    if do_select_related:
+        posts = posts.select_related('location', 'category', 'author')
+
+    if do_annotate:
+        posts = posts.annotate(comment_count=Count('comments'))
+
+    ordering = getattr(Post._meta, 'ordering', [])
+    if ordering:
+        posts = posts.order_by(*ordering)
+
+    return posts
 
 
-def paginate(queryset, request, per_page):
-    paginator = Paginator(queryset, per_page)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    return page_obj
+def paginate(posts, request, per_page=int):
+    return Paginator(
+        posts, per_page
+    ).get_page(request.GET.get('page'))
 
 
 def index(request):
-    posts = select_related_func()
-    page_obj = paginate(posts, request, INDEX_POSTS_QUANTITY)
-    return render(request, 'blog/index.html', {'page_obj': page_obj})
+    return render(
+        request,
+        'blog/index.html',
+        {
+            'page_obj': paginate(
+                get_posts(),
+                request,
+                POSTS_QUANTITY
+            )
+        }
+    )
 
 
 def post_detail(request, post_id):
     post = get_object_or_404(Post, id=post_id)
 
     if post.author != request.user:
-        queryset = select_related_func()
-        post = get_object_or_404(queryset, id=post_id)
+        posts = get_posts(do_filter=True)
+        post = get_object_or_404(posts, id=post_id)
 
     return render(request, 'blog/detail.html', {
         'post': post,
@@ -58,25 +75,32 @@ def post_detail(request, post_id):
 
 def category_posts(request, category_slug):
     category = get_object_or_404(
-        Category, slug=category_slug, is_published=True)
-    posts = select_related_func(
-        queryset=category.posts.all()
+        Category, slug=category_slug, is_published=True
     )
-    page_obj = paginate(posts, request, INDEX_POSTS_QUANTITY)
 
-    return render(request, 'blog/category.html', {
-        'category': category,
-        'page_obj': page_obj,
-    })
+    return render(
+        request,
+        'blog/category.html',
+        {
+            'category': category,
+            'page_obj': paginate(
+                get_posts(posts=category.posts.all()),
+                request,
+                POSTS_QUANTITY
+            ),
+        }
+    )
 
 
 def profile_view(request, username):
     author = get_object_or_404(User, username=username)
-    if request.user == author:
-        posts = author.posts.all().order_by('-pub_date')
-    else:
-        posts = select_related_func(queryset=author.posts.all())
-    page_obj = paginate(posts, request, INDEX_POSTS_QUANTITY)
+    posts = get_posts(
+        posts=author.posts.all(),
+        do_filter=False,
+        do_select_related=True,
+        do_annotate=True
+    )
+    page_obj = paginate(posts, request, POSTS_QUANTITY)
 
     return render(request, 'blog/profile.html', {
         'profile': author,
@@ -97,18 +121,18 @@ def edit_profile(request):
 @login_required
 def create_post(request):
     form = PostForm(request.POST or None, request.FILES)
-    if form.is_valid():
-        post = form.save(commit=False)
-        post.author = request.user
-        post.save()
-        return redirect('blog:profile', username=request.user.username)
-    return render(request, 'blog/create.html', {"form": form})
+    if not form.is_valid():
+        return render(request, 'blog/create.html', {'form': form})
+    post = form.save(commit=False)
+    post.author = request.user
+    post.save()
+    return redirect('blog:profile', request.user.username)
 
 
 def edit_post(request, post_id):
     post = get_object_or_404(Post, id=post_id)
     if post.author != request.user:
-        return redirect('blog:post_detail', post_id=post.id)
+        return redirect('blog:post_detail', post.id)
     form = PostForm(request.POST or None, request.FILES or None, instance=post)
     if form.is_valid():
         form.save()
@@ -130,18 +154,21 @@ def delete_post(request, post_id):
 @login_required
 def add_comment(request, post_id):
     form = CommentForm(request.POST or None)
-    if form.is_valid():
-        comment = form.save(commit=False)
-        post = get_object_or_404(Post, id=post_id)
-        comment.post = post
-        comment.author = request.user
-        comment.save()
-        return redirect('blog:post_detail', post_id=post.id)
-    return render(request, 'blog/comment.html', {
-        'form': form,
-        'post': post,
-        'comments': post.comments.all()
-    })
+    if not form.is_valid():
+        return render(
+            request,
+            'blog/comment.html',
+            {
+                'form': form,
+                'post': get_object_or_404(Post, id=post_id),
+                'comments': get_object_or_404(Post, id=post_id).comments.all(),
+            }
+        )
+    comment = form.save(commit=False)
+    comment.post = get_object_or_404(Post, id=post_id)
+    comment.author = request.user
+    comment.save()
+    return redirect('blog:post_detail', post_id=comment.post.id)
 
 
 @login_required
@@ -156,7 +183,7 @@ def edit_comment(request, post_id, comment_id):
     return render(request, "blog/comment.html", {
         "form": form,
         "comment": comment,
-        "post_id": post_id
+        "post": post_id
     })
 
 
@@ -170,5 +197,5 @@ def delete_comment(request, post_id, comment_id):
         return redirect("blog:post_detail", post_id=post_id)
     return render(request, "blog/comment.html", {
         "comment": comment,
-        "post_id": post_id
+        "post": post_id
     })
